@@ -1,0 +1,125 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum UserRole {
+  CUSTOMER
+  OPERATOR
+  ADMIN
+}
+
+enum ConcertStatus {
+  DRAFT
+  PUBLISHED
+  SOLD_OUT
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum VoucherStatus {
+  ACTIVE
+  INACTIVE
+  EXPIRED
+}
+
+enum BookingStatus {
+  PENDING
+  RESERVED
+  PAID
+  FAILED
+  CANCELLED
+}
+
+model User {
+  id         Int       @id @default(autoincrement())
+  email      String    @unique
+  fullName   String
+  role       UserRole  @default(CUSTOMER)
+  createdAt  DateTime  @default(now())
+
+  bookings   Booking[]
+
+  @@map("users")
+}
+
+model Concert {
+  id          Int             @id @default(autoincrement())
+  title       String
+  venue       String
+  startTime   DateTime
+  status      ConcertStatus   @default(DRAFT)
+  createdAt   DateTime        @default(now())
+
+  ticketCategories TicketCategory[]
+  bookings         Booking[]
+
+  @@map("concerts")
+}
+
+model TicketCategory {
+  id                 Int       @id @default(autoincrement())
+  concertId          Int
+  name               String
+  price              Decimal   @db.Decimal(10, 2)
+  totalQuantity      Int
+  remainingQuantity  Int
+
+  concert            Concert   @relation(fields: [concertId], references: [id])
+
+  bookingItems       BookingItem[]
+
+  @@map("ticket_categories")
+}
+
+model Voucher {
+  id              Int            @id @default(autoincrement())
+  code            String         @unique
+  discountType    DiscountType
+  discountValue   Decimal        @db.Decimal(10, 2)
+  usageLimit      Int
+  usedCount       Int            @default(0)
+  expiredAt       DateTime
+  status          VoucherStatus
+
+  bookings        Booking[]
+
+  @@map("vouchers")
+}
+
+model Booking {
+  id            Int             @id @default(autoincrement())
+  userId        Int
+  concertId     Int
+  voucherId     Int?
+  totalAmount   Decimal         @db.Decimal(10, 2)
+  status        BookingStatus   @default(PENDING)
+  createdAt     DateTime        @default(now())
+
+  user          User            @relation(fields: [userId], references: [id])
+  concert       Concert         @relation(fields: [concertId], references: [id])
+  voucher       Voucher?        @relation(fields: [voucherId], references: [id])
+
+  bookingItems  BookingItem[]
+
+  @@map("bookings")
+}
+
+model BookingItem {
+  id                Int             @id @default(autoincrement())
+  bookingId         Int
+  ticketCategoryId  Int
+  quantity          Int
+  unitPrice         Decimal         @db.Decimal(10, 2)
+
+  booking            Booking         @relation(fields: [bookingId], references: [id])
+  ticketCategory     TicketCategory  @relation(fields: [ticketCategoryId], references: [id])
+
+  @@map("booking_items")
+}
