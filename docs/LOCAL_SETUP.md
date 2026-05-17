@@ -1,6 +1,6 @@
 # Hướng dẫn thiết lập và chạy tại máy local
 
-Tài liệu này mô tả cách chạy **toàn bộ hệ thống** (MySQL, Redis, Backend API, Frontend) trên Windows / macOS / Linux.
+Tài liệu này mô tả cách chạy toàn bộ hệ thống (MySQL, Redis, Backend API, Frontend) trên Windows.
 
 ---
 

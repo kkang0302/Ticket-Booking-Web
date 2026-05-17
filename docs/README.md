@@ -1,8 +1,4 @@
-# Bộ tài liệu nộp bài — Concert Ticket Booking
-
-Theo **technical_assessment.md** (Geek Up — Product Backend Engineer Test), thư mục `docs/` chứa đầy đủ hồ sơ kỹ thuật.
-
-## Danh mục deliverables
+# Bộ tài liệu — Concert Ticket Booking
 
 | # | Yêu cầu đề bài | Tài liệu |
 |---|----------------|----------|
@@ -10,7 +6,7 @@ Theo **technical_assessment.md** (Geek Up — Product Backend Engineer Test), th
 | 2 | Mã nguồn | Repository `backend/`, `frontend/` |
 | 3 | Coding guideline & convention | [CODING_GUIDELINES.md](CODING_GUIDELINES.md) |
 | 4 | Hướng dẫn setup & chạy local | [LOCAL_SETUP.md](LOCAL_SETUP.md) |
-| 5 | Tài liệu API (Swagger) | [API.md](API.md) + http://localhost:3000/api-docs |
+| 5 | Tài liệu API (Swagger) | [API.md](API.md)|
 | 6 | Postman collection (local) | [postman/](postman/) |
 | 7 | Giả định, đã làm / chưa làm | [ASSUMPTIONS.md](ASSUMPTIONS.md) |
 

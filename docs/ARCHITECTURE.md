@@ -1,6 +1,5 @@
 # Tài liệu thiết kế hệ thống
 
-> Bài kiểm tra: **Product Backend Engineer Test** — Nền tảng đặt vé ca nhạc (Event Ticket Booking)  
 > Mục tiêu: thiết kế kiến trúc phù hợp flash sale (~50.000 user, peak ~300–500 booking/phút), chống overselling, trùng đơn, lạm dụng voucher.
 
 ---

@@ -1,6 +1,6 @@
 # Giả định, phạm vi đã làm và chưa làm
 
-Tài liệu trả lời trực tiếp yêu cầu đề bài: *mô tả các giả định, những gì đã làm và chưa làm (giới hạn hệ thống)*.
+mô tả các giả định, những gì đã làm và chưa làm (giới hạn hệ thống).
 
 ---
 
