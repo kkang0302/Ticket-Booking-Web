@@ -1,53 +1,97 @@
-import { useState } from "react";
-import { vouchers } from "../../data/mockData";
+import { useState, useEffect } from "react";
 import { Plus, Edit, Trash2, Tag, TrendingUp } from "lucide-react";
+import { request } from "../../../services/api";
+import { Voucher as ApiVoucher } from "../../../types/api";
 
 export default function VoucherManagement() {
+  const [vouchers, setVouchers] = useState<ApiVoucher[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [formData, setFormData] = useState({
     code: '',
     description: '',
-    discountType: 'percentage' as 'percentage' | 'fixed',
+    discountType: 'PERCENTAGE' as 'PERCENTAGE' | 'FIXED',
     discountValue: '',
-    validFrom: '',
     validUntil: '',
     usageLimit: '',
-    minPurchase: '',
-    status: 'active' as 'active' | 'inactive',
+    status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    console.log('Creating voucher:', formData);
-    setShowCreateModal(false);
-    setFormData({
-      code: '',
-      description: '',
-      discountType: 'percentage',
-      discountValue: '',
-      validFrom: '',
-      validUntil: '',
-      usageLimit: '',
-      minPurchase: '',
-      status: 'active',
-    });
+  useEffect(() => {
+    fetchVouchers();
+  }, []);
+
+  const fetchVouchers = async () => {
+    try {
+      setLoading(true);
+      const data = await request<ApiVoucher[]>('/admin/vouchers');
+      setVouchers(data);
+    } catch (err: any) {
+      setError(err.message || 'Failed to fetch vouchers');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const activeVouchers = vouchers.filter(v => v.status === 'active');
-  const inactiveVouchers = vouchers.filter(v => v.status === 'inactive' || v.status === 'expired');
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await request('/admin/vouchers', {
+        method: 'POST',
+        body: JSON.stringify({
+          code: formData.code,
+          discountType: formData.discountType,
+          discountValue: Number(formData.discountValue),
+          usageLimit: Number(formData.usageLimit),
+          expiredAt: formData.validUntil ? new Date(formData.validUntil).toISOString() : undefined,
+          status: formData.status,
+        })
+      });
+
+      setShowCreateModal(false);
+      setFormData({
+        code: '',
+        description: '',
+        discountType: 'PERCENTAGE',
+        discountValue: '',
+        validUntil: '',
+        usageLimit: '',
+        status: 'ACTIVE',
+      });
+      fetchVouchers();
+    } catch (err: any) {
+      alert(`Failed to create voucher: ${err.message}`);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this voucher?')) return;
+    try {
+      await request(`/admin/vouchers/${id}`, { method: 'DELETE' });
+      fetchVouchers();
+    } catch (err: any) {
+      alert(`Failed to delete voucher: ${err.message}`);
+    }
+  };
+
+  const activeVouchers = vouchers.filter(v => v.status === 'ACTIVE');
+  const inactiveVouchers = vouchers.filter(v => v.status === 'INACTIVE');
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'active':
+      case 'ACTIVE':
         return 'bg-green-500/10 text-green-500';
-      case 'inactive':
+      case 'INACTIVE':
         return 'bg-gray-500/10 text-gray-500';
-      case 'expired':
-        return 'bg-destructive/10 text-destructive';
       default:
         return 'bg-accent text-accent-foreground';
     }
   };
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center">Loading vouchers...</div>;
+  if (error) return <div className="min-h-screen flex items-center justify-center text-red-500">{error}</div>;
 
   return (
     <div className="min-h-screen py-8">
@@ -99,7 +143,7 @@ export default function VoucherManagement() {
             <h2 className="text-xl mb-4">Active Vouchers</h2>
             <div className="space-y-3">
               {activeVouchers.map((voucher) => {
-                const usagePercentage = (voucher.usageCount / voucher.usageLimit * 100).toFixed(1);
+                const usagePercentage = voucher.usageLimit > 0 ? (voucher.usageCount / voucher.usageLimit * 100).toFixed(1) : '0';
 
                 return (
                   <div key={voucher.id} className="bg-card border border-border rounded-lg p-6">
@@ -114,21 +158,19 @@ export default function VoucherManagement() {
                           </span>
                         </div>
 
-                        <p className="text-muted-foreground mb-4">{voucher.description}</p>
-
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mt-4">
                           <div>
                             <div className="text-muted-foreground mb-1">Discount</div>
                             <div>
-                              {voucher.discountType === 'percentage'
+                              {voucher.discountType === 'PERCENTAGE'
                                 ? `${voucher.discountValue}%`
                                 : `$${voucher.discountValue}`}
                             </div>
                           </div>
                           <div>
-                            <div className="text-muted-foreground mb-1">Valid Period</div>
+                            <div className="text-muted-foreground mb-1">Expiry Date</div>
                             <div>
-                              {new Date(voucher.validFrom).toLocaleDateString()} - {new Date(voucher.validUntil).toLocaleDateString()}
+                              {voucher.expiredAt ? new Date(voucher.expiredAt).toLocaleDateString() : 'No expiry'}
                             </div>
                           </div>
                           <div>
@@ -137,12 +179,6 @@ export default function VoucherManagement() {
                               {voucher.usageCount} / {voucher.usageLimit}
                             </div>
                           </div>
-                          {voucher.minPurchase && (
-                            <div>
-                              <div className="text-muted-foreground mb-1">Min Purchase</div>
-                              <div>${voucher.minPurchase}</div>
-                            </div>
-                          )}
                         </div>
 
                         <div className="mt-4">
@@ -164,7 +200,7 @@ export default function VoucherManagement() {
                           <Edit className="w-4 h-4" />
                           Edit
                         </button>
-                        <button className="flex items-center justify-center gap-2 px-4 py-2 bg-destructive/10 text-destructive rounded-lg hover:bg-destructive/20 transition-colors">
+                        <button onClick={() => handleDelete(voucher.id)} className="flex items-center justify-center gap-2 px-4 py-2 bg-destructive/10 text-destructive rounded-lg hover:bg-destructive/20 transition-colors">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -191,7 +227,6 @@ export default function VoucherManagement() {
                             {voucher.status}
                           </span>
                         </div>
-                        <p className="text-muted-foreground text-sm">{voucher.description}</p>
                       </div>
                       <button className="px-4 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors">
                         Reactivate
@@ -232,18 +267,6 @@ export default function VoucherManagement() {
                   />
                 </div>
 
-                <div className="md:col-span-2">
-                  <label className="block text-sm mb-2">Description</label>
-                  <input
-                    type="text"
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="e.g., 25% off summer concerts"
-                    className="w-full px-4 py-3 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                    required
-                  />
-                </div>
-
                 <div>
                   <label className="block text-sm mb-2">Discount Type</label>
                   <select
@@ -251,14 +274,14 @@ export default function VoucherManagement() {
                     onChange={(e) => setFormData({ ...formData, discountType: e.target.value as any })}
                     className="w-full px-4 py-3 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
                   >
-                    <option value="percentage">Percentage (%)</option>
-                    <option value="fixed">Fixed Amount ($)</option>
+                    <option value="PERCENTAGE">Percentage (%)</option>
+                    <option value="FIXED">Fixed Amount ($)</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-sm mb-2">
-                    Discount Value {formData.discountType === 'percentage' ? '(%)' : '($)'}
+                    Discount Value {formData.discountType === 'PERCENTAGE' ? '(%)' : '($)'}
                   </label>
                   <input
                     type="number"
@@ -270,24 +293,12 @@ export default function VoucherManagement() {
                 </div>
 
                 <div>
-                  <label className="block text-sm mb-2">Valid From</label>
-                  <input
-                    type="date"
-                    value={formData.validFrom}
-                    onChange={(e) => setFormData({ ...formData, validFrom: e.target.value })}
-                    className="w-full px-4 py-3 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm mb-2">Valid Until</label>
+                  <label className="block text-sm mb-2">Expiry Date</label>
                   <input
                     type="date"
                     value={formData.validUntil}
                     onChange={(e) => setFormData({ ...formData, validUntil: e.target.value })}
                     className="w-full px-4 py-3 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                    required
                   />
                 </div>
 
@@ -302,17 +313,6 @@ export default function VoucherManagement() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm mb-2">Minimum Purchase ($)</label>
-                  <input
-                    type="number"
-                    value={formData.minPurchase}
-                    onChange={(e) => setFormData({ ...formData, minPurchase: e.target.value })}
-                    placeholder="Optional"
-                    className="w-full px-4 py-3 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-
                 <div className="md:col-span-2">
                   <label className="block text-sm mb-2">Status</label>
                   <select
@@ -320,8 +320,8 @@ export default function VoucherManagement() {
                     onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
                     className="w-full px-4 py-3 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
                   >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
+                    <option value="ACTIVE">Active</option>
+                    <option value="INACTIVE">Inactive</option>
                   </select>
                 </div>
               </div>

@@ -1,99 +1,131 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
-import { Seat, Concert, vouchers } from "../../data/mockData";
-import { CreditCard, Tag, CheckCircle, AlertCircle, Loader } from "lucide-react";
+import { Tag, CheckCircle, AlertCircle, Loader } from "lucide-react";
+import { request } from "../../../services/api";
+import { Concert as UIConcert } from "../../../types/ui";
+
+interface TicketDetail {
+  tier: { id: number; name: string; price: number };
+  quantity: number;
+}
+
+function getIdempotencyKey(concertId: number, items: { ticketCategoryId: number; quantity: number }[]) {
+  const storageKey = `idempotency:${concertId}:${JSON.stringify(items)}`;
+  let stored = sessionStorage.getItem(storageKey);
+  if (!stored) {
+    stored = crypto.randomUUID();
+    sessionStorage.setItem(storageKey, stored);
+  }
+  return { storageKey, idempotencyKey: stored };
+}
 
 export default function Checkout() {
   const navigate = useNavigate();
-  const [selectedSeats, setSelectedSeats] = useState<Seat[]>([]);
-  const [concert, setConcert] = useState<Concert | null>(null);
+  const [selectedTickets, setSelectedTickets] = useState<TicketDetail[]>([]);
+  const [concert, setConcert] = useState<UIConcert | null>(null);
   const [voucherCode, setVoucherCode] = useState("");
-  const [appliedVoucher, setAppliedVoucher] = useState<any>(null);
+  const [appliedVoucherCode, setAppliedVoucherCode] = useState<string | null>(null);
+  const [discount, setDiscount] = useState(0);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [submitStatus, setSubmitStatus] = useState<"idle" | "processing" | "success" | "failed">("idle");
+  const [formData, setFormData] = useState({ name: "", email: "" });
   const [voucherError, setVoucherError] = useState("");
-  const [paymentStatus, setPaymentStatus] = useState<'idle' | 'processing' | 'success' | 'failed'>('idle');
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    cardNumber: '',
-    expiry: '',
-    cvv: '',
-  });
 
   useEffect(() => {
-    const seatsData = localStorage.getItem('selectedSeats');
-    const concertData = localStorage.getItem('selectedConcert');
+    const ticketsData = localStorage.getItem("selectedTickets");
+    const concertData = localStorage.getItem("selectedConcert");
 
-    if (seatsData && concertData) {
-      setSelectedSeats(JSON.parse(seatsData));
+    if (ticketsData && concertData) {
+      setSelectedTickets(JSON.parse(ticketsData));
       setConcert(JSON.parse(concertData));
     } else {
-      navigate('/concerts');
+      navigate("/concerts");
     }
   }, [navigate]);
 
-  const subtotal = selectedSeats.reduce((sum, seat) => sum + seat.price, 0);
+  const subtotal = selectedTickets.reduce((sum, item) => sum + item.tier.price * item.quantity, 0);
   const bookingFee = 5.99;
+  const total = subtotal + bookingFee;
 
-  const applyVoucher = () => {
-    setVoucherError("");
-    const voucher = vouchers.find(v => v.code === voucherCode.toUpperCase() && v.status === 'active');
-
-    if (!voucher) {
-      setVoucherError("Invalid or expired voucher code");
-      setAppliedVoucher(null);
+  const applyVoucher = async () => {
+    if (!voucherCode.trim()) {
+      setAppliedVoucherCode(null);
+      setDiscount(0);
+      setVoucherError("");
       return;
     }
 
-    if (voucher.minPurchase && subtotal < voucher.minPurchase) {
-      setVoucherError(`Minimum purchase of $${voucher.minPurchase} required`);
-      setAppliedVoucher(null);
-      return;
+    try {
+      const voucher = await request<{ code: string; discountType: string; discountValue: number }>(
+        `/vouchers/validate/${voucherCode}`
+      );
+      setAppliedVoucherCode(voucher.code);
+      if (voucher.discountType === "PERCENTAGE") {
+        setDiscount(total * (voucher.discountValue / 100));
+      } else {
+        setDiscount(voucher.discountValue);
+      }
+      setVoucherError("");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Invalid or expired voucher";
+      setAppliedVoucherCode(null);
+      setDiscount(0);
+      setVoucherError(message);
     }
-
-    setAppliedVoucher(voucher);
-    setVoucherError("");
   };
-
-  const discount = appliedVoucher
-    ? appliedVoucher.discountType === 'percentage'
-      ? subtotal * (appliedVoucher.discountValue / 100)
-      : appliedVoucher.discountValue
-    : 0;
-
-  const total = subtotal + bookingFee - discount;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setPaymentStatus('processing');
+    setSubmitStatus("processing");
+    setErrorMsg("");
 
-    setTimeout(() => {
-      const success = Math.random() > 0.1;
-      setPaymentStatus(success ? 'success' : 'failed');
+    try {
+      const items = selectedTickets.map((t) => ({
+        ticketCategoryId: t.tier.id,
+        quantity: t.quantity,
+      }));
 
-      if (success) {
-        localStorage.removeItem('selectedSeats');
-        localStorage.removeItem('selectedConcert');
-        setTimeout(() => {
-          navigate('/bookings');
-        }, 2000);
-      }
-    }, 2000);
+      const { storageKey, idempotencyKey } = getIdempotencyKey(Number(concert?.id), items);
+
+      await request("/bookings", {
+        method: "POST",
+        body: JSON.stringify({
+          concertId: concert?.id,
+          items,
+          voucherCode: appliedVoucherCode || undefined,
+          idempotencyKey,
+        }),
+      });
+
+      sessionStorage.removeItem(storageKey);
+      setSubmitStatus("success");
+      localStorage.removeItem("selectedTickets");
+      localStorage.removeItem("selectedConcert");
+
+      setTimeout(() => navigate("/bookings"), 2000);
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : "Failed to create booking");
+      setSubmitStatus("failed");
+    }
   };
 
   if (!concert) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center">Loading...</div>
+    );
   }
 
-  if (paymentStatus === 'success') {
+  if (submitStatus === "success") {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center max-w-md mx-auto px-4">
           <CheckCircle className="w-20 h-20 text-green-500 mx-auto mb-6" />
-          <h2 className="text-3xl mb-4">Payment Successful!</h2>
+          <h2 className="text-3xl mb-4">Booking Created!</h2>
           <p className="text-muted-foreground mb-6">
-            Your booking has been confirmed. A confirmation email has been sent to {formData.email}
+            Your tickets are reserved. Go to My Bookings and click <strong>Pay money</strong> to
+            complete mock payment (no real charge).
           </p>
-          <div className="text-sm text-muted-foreground">Redirecting to your bookings...</div>
+          <p className="text-sm text-muted-foreground">Redirecting to your bookings...</p>
         </div>
       </div>
     );
@@ -108,7 +140,7 @@ export default function Checkout() {
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-card border border-border rounded-lg p-6">
               <h2 className="text-xl mb-4">Contact Information</h2>
-              <div className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm mb-2">Full Name</label>
                   <input
@@ -129,70 +161,31 @@ export default function Checkout() {
                     required
                   />
                 </div>
-              </div>
-            </div>
 
-            <div className="bg-card border border-border rounded-lg p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <CreditCard className="w-5 h-5" />
-                <h2 className="text-xl">Payment Details</h2>
-              </div>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-sm mb-2">Card Number</label>
-                  <input
-                    type="text"
-                    placeholder="1234 5678 9012 3456"
-                    value={formData.cardNumber}
-                    onChange={(e) => setFormData({ ...formData, cardNumber: e.target.value })}
-                    className="w-full px-4 py-3 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                    required
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm mb-2">Expiry Date</label>
-                    <input
-                      type="text"
-                      placeholder="MM/YY"
-                      value={formData.expiry}
-                      onChange={(e) => setFormData({ ...formData, expiry: e.target.value })}
-                      className="w-full px-4 py-3 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm mb-2">CVV</label>
-                    <input
-                      type="text"
-                      placeholder="123"
-                      value={formData.cvv}
-                      onChange={(e) => setFormData({ ...formData, cvv: e.target.value })}
-                      className="w-full px-4 py-3 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                      required
-                    />
-                  </div>
-                </div>
+                <p className="text-sm text-muted-foreground rounded-lg bg-muted/50 p-3">
+                  Payment is mocked for this demo. After reserving tickets, use the{" "}
+                  <strong>Pay money</strong> button on My Bookings — no card or real charge.
+                </p>
 
-                {paymentStatus === 'failed' && (
+                {submitStatus === "failed" && (
                   <div className="flex items-center gap-2 p-4 bg-destructive/10 border border-destructive rounded-lg">
-                    <AlertCircle className="w-5 h-5 text-destructive" />
-                    <span className="text-destructive">Payment failed. Please try again.</span>
+                    <AlertCircle className="w-5 h-5 text-destructive shrink-0" />
+                    <span className="text-destructive">{errorMsg || "Failed to create booking."}</span>
                   </div>
                 )}
 
                 <button
                   type="submit"
-                  disabled={paymentStatus === 'processing'}
+                  disabled={submitStatus === "processing"}
                   className="w-full py-4 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  {paymentStatus === 'processing' ? (
+                  {submitStatus === "processing" ? (
                     <>
                       <Loader className="w-5 h-5 animate-spin" />
-                      Processing Payment...
+                      Reserving tickets...
                     </>
                   ) : (
-                    `Pay $${total.toFixed(2)}`
+                    `Reserve tickets — $${Math.max(0, total - discount).toFixed(2)}`
                   )}
                 </button>
               </form>
@@ -212,18 +205,17 @@ export default function Checkout() {
                   className="flex-1 px-4 py-3 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
                 />
                 <button
+                  type="button"
                   onClick={applyVoucher}
                   className="px-6 py-3 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors"
                 >
                   Apply
                 </button>
               </div>
-              {voucherError && (
-                <div className="mt-2 text-sm text-destructive">{voucherError}</div>
-              )}
-              {appliedVoucher && (
+              {voucherError && <div className="mt-2 text-sm text-destructive">✗ {voucherError}</div>}
+              {appliedVoucherCode && !voucherError && (
                 <div className="mt-2 text-sm text-green-600 dark:text-green-400">
-                  ✓ Voucher "{appliedVoucher.code}" applied - {appliedVoucher.description}
+                  ✓ Voucher &quot;{appliedVoucherCode}&quot; will apply when you pay
                 </div>
               )}
             </div>
@@ -232,27 +224,22 @@ export default function Checkout() {
           <div className="lg:col-span-1">
             <div className="sticky top-20 bg-card border border-border rounded-lg p-6">
               <h3 className="text-xl mb-4">Order Summary</h3>
-
               <div className="mb-4">
                 <div className="text-sm text-muted-foreground mb-2">{concert.title}</div>
-                <div className="text-sm text-muted-foreground">{concert.artist}</div>
                 <div className="text-sm text-muted-foreground">
                   {new Date(concert.date).toLocaleDateString()} at {concert.time}
                 </div>
               </div>
-
-              <div className="mb-4 pt-4 border-t border-border">
-                <div className="text-sm text-muted-foreground mb-2">Selected Seats</div>
-                <div className="space-y-1">
-                  {selectedSeats.map(seat => (
-                    <div key={seat.id} className="flex justify-between text-sm">
-                      <span>Section {seat.section}, Row {seat.row}, Seat {seat.number}</span>
-                      <span>${seat.price}</span>
-                    </div>
-                  ))}
-                </div>
+              <div className="mb-4 pt-4 border-t border-border space-y-1">
+                {selectedTickets.map((item, index) => (
+                  <div key={index} className="flex justify-between text-sm">
+                    <span>
+                      {item.tier.name} × {item.quantity}
+                    </span>
+                    <span>${(item.tier.price * item.quantity).toFixed(2)}</span>
+                  </div>
+                ))}
               </div>
-
               <div className="space-y-2 pt-4 border-t border-border">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal</span>
@@ -262,15 +249,15 @@ export default function Checkout() {
                   <span className="text-muted-foreground">Booking Fee</span>
                   <span>${bookingFee.toFixed(2)}</span>
                 </div>
-                {appliedVoucher && (
+                {discount > 0 && (
                   <div className="flex justify-between text-sm text-green-600 dark:text-green-400">
-                    <span>Discount ({appliedVoucher.code})</span>
+                    <span>Discount</span>
                     <span>-${discount.toFixed(2)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-xl pt-3 border-t border-border">
                   <span>Total</span>
-                  <span className="text-primary">${total.toFixed(2)}</span>
+                  <span className="text-primary">${Math.max(0, total - discount).toFixed(2)}</span>
                 </div>
               </div>
             </div>
@@ -280,3 +267,4 @@ export default function Checkout() {
     </div>
   );
 }
+

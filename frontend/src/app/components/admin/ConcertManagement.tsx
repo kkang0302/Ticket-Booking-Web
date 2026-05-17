@@ -1,9 +1,15 @@
-import { useState } from "react";
-import { concerts } from "../../data/mockData";
+import { useState, useEffect } from "react";
 import { Plus, Edit, Trash2, Zap } from "lucide-react";
+import { request } from "../../../services/api";
+import { Concert as ApiConcert } from "../../../types/api";
 
 export default function ConcertManagement() {
+  const [concerts, setConcerts] = useState<ApiConcert[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     title: '',
     artist: '',
@@ -17,29 +23,121 @@ export default function ConcertManagement() {
     totalSeats: '',
     isFlashSale: false,
     flashSaleDiscount: '',
+    status: 'DRAFT',
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    fetchConcerts();
+  }, []);
+
+  const fetchConcerts = async () => {
+    try {
+      setLoading(true);
+      const data = await request<ApiConcert[]>('/admin/concerts');
+      setConcerts(data);
+    } catch (err: any) {
+      setError(err.message || 'Failed to fetch concerts');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEdit = (concert: ApiConcert) => {
+    // navigate to edit page
+    window.location.href = `/admin/concerts/${concert.id}/edit`;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('Creating concert:', formData);
-    setShowCreateModal(false);
-    setFormData({
-      title: '',
-      artist: '',
-      date: '',
-      time: '',
-      venue: '',
-      location: '',
-      price: '',
-      category: 'Rock',
-      description: '',
-      totalSeats: '',
-      isFlashSale: false,
-      flashSaleDiscount: '',
-    });
+    try {
+      const startTime = new Date(`${formData.date}T${formData.time}`).toISOString();
+      const endTime = new Date(new Date(startTime).getTime() + 2 * 60 * 60 * 1000).toISOString();
+
+      if (editingId) {
+        await request(`/admin/concerts/${editingId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            title: formData.title,
+            description: formData.description || 'No description provided',
+            venue: formData.venue,
+            startTime,
+            status: formData.status,
+          })
+        });
+        // If admin provided a price and totalSeats while editing, create a new ticket category
+        if (formData.price && formData.totalSeats) {
+          await request('/admin/concerts/ticket-categories', {
+            method: 'POST',
+            body: JSON.stringify({
+              concertId: editingId,
+              name: formData.category || 'General Admission',
+              price: Number(formData.price),
+              totalQuantity: Number(formData.totalSeats),
+            })
+          });
+        }
+      } else {
+        const newConcert = await request<ApiConcert>('/admin/concerts', {
+          method: 'POST',
+          body: JSON.stringify({
+            title: formData.title,
+            description: formData.description || 'No description provided',
+            venue: formData.venue,
+            startTime,
+            status: formData.status,
+          })
+        });
+
+        // Add ticket category if price and totalSeats provided
+        if (formData.price && formData.totalSeats && newConcert.id) {
+          await request('/admin/concerts/ticket-categories', {
+            method: 'POST',
+            body: JSON.stringify({
+              concertId: newConcert.id,
+              name: formData.category || 'General Admission',
+              price: Number(formData.price),
+              totalQuantity: Number(formData.totalSeats),
+            })
+          });
+        }
+      }
+
+      setShowCreateModal(false);
+      setEditingId(null);
+      setFormData({
+        title: '',
+        artist: '',
+        date: '',
+        time: '',
+        venue: '',
+        location: '',
+        price: '',
+        category: 'Rock',
+        description: '',
+        totalSeats: '',
+        isFlashSale: false,
+        flashSaleDiscount: '',
+      });
+      fetchConcerts();
+    } catch (err: any) {
+      alert(`Failed to create concert: ${err.message}`);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this concert?')) return;
+    try {
+      await request(`/admin/concerts/${id}`, { method: 'DELETE' });
+      fetchConcerts();
+    } catch (err: any) {
+      alert(`Failed to delete concert: ${err.message}`);
+    }
   };
 
   const categories = ['Rock', 'Pop', 'Jazz', 'Electronic', 'Classical', 'Hip Hop', 'Indie', 'Country'];
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center">Loading concerts...</div>;
+  if (error) return <div className="min-h-screen flex items-center justify-center text-red-500">{error}</div>;
 
   return (
     <div className="min-h-screen py-8">
@@ -59,62 +157,60 @@ export default function ConcertManagement() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {concerts.map((concert) => (
-            <div key={concert.id} className="bg-card border border-border rounded-lg overflow-hidden group">
-              <div className="aspect-[16/9] overflow-hidden relative">
-                <img
-                  src={concert.image}
-                  alt={concert.title}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                />
-                {concert.isFlashSale && (
-                  <div className="absolute top-3 right-3 bg-destructive text-destructive-foreground px-3 py-1 rounded-full text-sm flex items-center gap-1">
-                    <Zap className="w-4 h-4" />
-                    Flash Sale
-                  </div>
-                )}
-              </div>
+          {concerts.map((concert) => {
+            const availableSeats = concert.ticketCategories?.reduce((acc, tc) => acc + tc.remainingQuantity, 0) || 0;
+            const totalSeats = concert.ticketCategories?.reduce((acc, tc) => acc + tc.totalQuantity, 0) || 0;
 
-              <div className="p-6">
-                <div className="text-sm text-muted-foreground mb-2">{concert.category}</div>
-                <h3 className="text-xl mb-2">{concert.title}</h3>
-                <div className="text-muted-foreground mb-4">{concert.artist}</div>
-
-                <div className="space-y-2 text-sm mb-4">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Date:</span>
-                    <span>{new Date(concert.date).toLocaleDateString()}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Time:</span>
-                    <span>{concert.time}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Venue:</span>
-                    <span>{concert.venue}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Price:</span>
-                    <span className="text-primary">${concert.price}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Seats:</span>
-                    <span>{concert.availableSeats} / {concert.totalSeats}</span>
-                  </div>
+            return (
+              <div key={concert.id} className="bg-card border border-border rounded-lg overflow-hidden group flex flex-col">
+                <div className="aspect-[16/9] overflow-hidden relative bg-muted flex items-center justify-center">
+                  <div className="text-muted-foreground text-sm">No Image Available</div>
                 </div>
 
-                <div className="flex gap-2 pt-4 border-t border-border">
-                  <button className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors">
-                    <Edit className="w-4 h-4" />
-                    Edit
-                  </button>
-                  <button className="flex items-center justify-center gap-2 px-4 py-2 bg-destructive/10 text-destructive rounded-lg hover:bg-destructive/20 transition-colors">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                <div className="p-6 flex flex-col flex-1">
+                  <div className="text-sm text-muted-foreground mb-2">Concert</div>
+                  <h3 className="text-xl mb-2 line-clamp-1">{concert.title}</h3>
+                  <div className="text-muted-foreground mb-4">Various Artists</div>
+
+                  <div className="space-y-2 text-sm mb-4 flex-1">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Date:</span>
+                      <span>{new Date(concert.startTime).toLocaleDateString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Time:</span>
+                      <span>{new Date(concert.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Venue:</span>
+                      <span>{concert.venue}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Status:</span>
+                      <span className="text-primary">{concert.status}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Seats:</span>
+                      <span>{availableSeats} / {totalSeats}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 pt-4 border-t border-border mt-auto">
+                    <button 
+                      onClick={() => handleEdit(concert)}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors"
+                    >
+                      <Edit className="w-4 h-4" />
+                      Edit
+                    </button>
+                    <button onClick={() => handleDelete(concert.id)} className="flex items-center justify-center gap-2 px-4 py-2 bg-destructive/10 text-destructive rounded-lg hover:bg-destructive/20 transition-colors">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -122,7 +218,7 @@ export default function ConcertManagement() {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-card border border-border rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-center justify-between">
-              <h2 className="text-2xl">Create New Concert</h2>
+              <h2 className="text-2xl">{editingId ? 'Edit Concert' : 'Create New Concert'}</h2>
               <button
                 onClick={() => setShowCreateModal(false)}
                 className="text-muted-foreground hover:text-foreground"
@@ -151,7 +247,6 @@ export default function ConcertManagement() {
                     value={formData.artist}
                     onChange={(e) => setFormData({ ...formData, artist: e.target.value })}
                     className="w-full px-4 py-3 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                    required
                   />
                 </div>
 
@@ -195,7 +290,6 @@ export default function ConcertManagement() {
                     value={formData.location}
                     onChange={(e) => setFormData({ ...formData, location: e.target.value })}
                     className="w-full px-4 py-3 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                    required
                   />
                 </div>
 
@@ -219,7 +313,6 @@ export default function ConcertManagement() {
                     value={formData.price}
                     onChange={(e) => setFormData({ ...formData, price: e.target.value })}
                     className="w-full px-4 py-3 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                    required
                   />
                 </div>
 
@@ -230,7 +323,6 @@ export default function ConcertManagement() {
                     value={formData.totalSeats}
                     onChange={(e) => setFormData({ ...formData, totalSeats: e.target.value })}
                     className="w-full px-4 py-3 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-                    required
                   />
                 </div>
 
@@ -243,6 +335,19 @@ export default function ConcertManagement() {
                     className="w-full px-4 py-3 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
                     required
                   />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm mb-2">Status</label>
+                  <select
+                    value={formData.status}
+                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                    className="w-full px-4 py-3 bg-input-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="DRAFT">Draft</option>
+                    <option value="PUBLISHED">Published</option>
+                    <option value="SOLD_OUT">Sold Out</option>
+                  </select>
                 </div>
 
                 <div className="md:col-span-2">
@@ -284,7 +389,7 @@ export default function ConcertManagement() {
                   type="submit"
                   className="flex-1 px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity"
                 >
-                  Create Concert
+                  {editingId ? 'Update Concert' : 'Create Concert'}
                 </button>
               </div>
             </form>

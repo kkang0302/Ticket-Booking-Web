@@ -35,11 +35,13 @@ enum BookingStatus {
   PAID
   FAILED
   CANCELLED
+  EXPIRED
 }
 
 model User {
   id         Int       @id @default(autoincrement())
   email      String    @unique
+  password   String
   fullName   String
   role       UserRole  @default(CUSTOMER)
   createdAt  DateTime  @default(now())
@@ -94,13 +96,15 @@ model Voucher {
 }
 
 model Booking {
-  id            Int             @id @default(autoincrement())
-  userId        Int
-  concertId     Int
-  voucherId     Int?
-  totalAmount   Decimal         @db.Decimal(10, 2)
-  status        BookingStatus   @default(PENDING)
-  createdAt     DateTime        @default(now())
+  id             Int             @id @default(autoincrement())
+  userId         Int
+  concertId      Int
+  voucherId      Int?
+  totalAmount    Decimal         @db.Decimal(10, 2)
+  status         BookingStatus   @default(PENDING)
+  idempotencyKey String?         @unique
+  expiresAt      DateTime?
+  createdAt      DateTime        @default(now())
 
   user          User            @relation(fields: [userId], references: [id])
   concert       Concert         @relation(fields: [concertId], references: [id])

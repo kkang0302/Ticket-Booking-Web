@@ -1,39 +1,71 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router";
-import { bookings, concerts, vouchers } from "../../data/mockData";
 import { Users, Ticket, TrendingUp, AlertTriangle, Calendar, DollarSign } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { request } from "../../../services/api";
+import { Booking as ApiBooking, Concert as ApiConcert, Voucher as ApiVoucher } from "../../../types/api";
 
 export default function AdminDashboard() {
+  const [bookings, setBookings] = useState<ApiBooking[]>([]);
+  const [concerts, setConcerts] = useState<ApiConcert[]>([]);
+  const [vouchers, setVouchers] = useState<ApiVoucher[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const [bookingsData, concertsData, vouchersData] = await Promise.all([
+          request<ApiBooking[]>('/admin/bookings').catch(() => []),
+          request<ApiConcert[]>('/admin/concerts').catch(() => []),
+          request<ApiVoucher[]>('/admin/vouchers').catch(() => [])
+        ]);
+        setBookings(bookingsData);
+        setConcerts(concertsData);
+        setVouchers(vouchersData);
+      } catch (err: any) {
+        setError(err.message || 'Failed to fetch dashboard data');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center">Loading dashboard...</div>;
+  if (error) return <div className="min-h-screen flex items-center justify-center text-red-500">{error}</div>;
+
   const totalBookings = bookings.length;
-  const confirmedBookings = bookings.filter(b => b.status === 'confirmed').length;
-  const suspiciousBookings = bookings.filter(b => b.status === 'suspicious').length;
-  const failedBookings = bookings.filter(b => b.status === 'failed').length;
+  const confirmedBookings = bookings.filter(b => b.status === 'PAID').length;
+  const suspiciousBookings = bookings.filter(b => b.status === 'SUSPICIOUS').length;
+  const failedBookings = bookings.filter(b => b.status === 'FAILED' || b.status === 'CANCELLED').length;
   const totalRevenue = bookings
-    .filter(b => b.status === 'confirmed')
-    .reduce((sum, b) => sum + b.totalPrice, 0);
+    .filter(b => b.status === 'PAID')
+    .reduce((sum, b) => sum + Number(b.totalAmount), 0);
 
-  const totalSeatsAvailable = concerts.reduce((sum, c) => sum + c.availableSeats, 0);
-  const totalSeats = concerts.reduce((sum, c) => sum + c.totalSeats, 0);
-  const occupancyRate = ((totalSeats - totalSeatsAvailable) / totalSeats * 100).toFixed(1);
-
-  const activeVouchers = vouchers.filter(v => v.status === 'active').length;
+  const totalSeatsAvailable = concerts.reduce((sum, c) => 
+    sum + (c.ticketCategories?.reduce((acc, tc) => acc + tc.remainingQuantity, 0) || 0), 0);
+  const totalSeats = concerts.reduce((sum, c) => 
+    sum + (c.ticketCategories?.reduce((acc, tc) => acc + tc.totalQuantity, 0) || 0), 0);
+  const occupancyRate = totalSeats > 0 ? ((totalSeats - totalSeatsAvailable) / totalSeats * 100).toFixed(1) : '0.0';
 
   const bookingsByStatus = [
     { name: 'Confirmed', value: confirmedBookings, color: '#22c55e' },
-    { name: 'Pending', value: bookings.filter(b => b.status === 'pending').length, color: '#eab308' },
+    { name: 'Pending', value: bookings.filter(b => b.status === 'PENDING').length, color: '#eab308' },
     { name: 'Suspicious', value: suspiciousBookings, color: '#f97316' },
     { name: 'Failed', value: failedBookings, color: '#ef4444' },
   ];
 
   const revenueByDate = bookings
-    .filter(b => b.status === 'confirmed')
+    .filter(b => b.status === 'PAID')
     .reduce((acc: any[], booking) => {
-      const date = new Date(booking.bookingDate).toLocaleDateString();
+      const date = new Date(booking.createdAt).toLocaleDateString();
       const existing = acc.find(item => item.date === date);
       if (existing) {
-        existing.revenue += booking.totalPrice;
+        existing.revenue += Number(booking.totalAmount);
       } else {
-        acc.push({ date, revenue: booking.totalPrice });
+        acc.push({ date, revenue: Number(booking.totalAmount) });
       }
       return acc;
     }, [])
@@ -165,15 +197,15 @@ export default function AdminDashboard() {
               {bookings.slice(0, 5).map((booking) => (
                 <div key={booking.id} className="flex items-center justify-between py-3 border-b border-border last:border-0">
                   <div className="flex-1">
-                    <div className="mb-1">{booking.concertTitle}</div>
-                    <div className="text-sm text-muted-foreground">{booking.customerName}</div>
+                    <div className="mb-1">{booking.concert?.title || 'Unknown Concert'}</div>
+                    <div className="text-sm text-muted-foreground">{booking.user?.fullName || 'Unknown User'}</div>
                   </div>
                   <div className="text-right">
-                    <div className="mb-1">${booking.totalPrice}</div>
+                    <div className="mb-1">${Number(booking.totalAmount).toFixed(2)}</div>
                     <div className={`text-sm px-2 py-1 rounded inline-block ${
-                      booking.status === 'confirmed' ? 'bg-green-500/10 text-green-500' :
-                      booking.status === 'pending' ? 'bg-yellow-500/10 text-yellow-500' :
-                      booking.status === 'suspicious' ? 'bg-orange-500/10 text-orange-500' :
+                      booking.status === 'PAID' ? 'bg-green-500/10 text-green-500' :
+                      booking.status === 'PENDING' ? 'bg-yellow-500/10 text-yellow-500' :
+                      booking.status === 'SUSPICIOUS' ? 'bg-orange-500/10 text-orange-500' :
                       'bg-destructive/10 text-destructive'
                     }`}>
                       {booking.status}
@@ -192,21 +224,25 @@ export default function AdminDashboard() {
               </Link>
             </div>
             <div className="space-y-3">
-              {concerts.slice(0, 5).map((concert) => (
-                <div key={concert.id} className="flex items-center justify-between py-3 border-b border-border last:border-0">
-                  <div className="flex-1">
-                    <div className="mb-1">{concert.title}</div>
-                    <div className="text-sm text-muted-foreground flex items-center gap-1">
-                      <Calendar className="w-3 h-3" />
-                      {new Date(concert.date).toLocaleDateString()}
+              {concerts.slice(0, 5).map((concert) => {
+                const avail = concert.ticketCategories?.reduce((acc, tc) => acc + tc.remainingQuantity, 0) || 0;
+                const total = concert.ticketCategories?.reduce((acc, tc) => acc + tc.totalQuantity, 0) || 0;
+                return (
+                  <div key={concert.id} className="flex items-center justify-between py-3 border-b border-border last:border-0">
+                    <div className="flex-1">
+                      <div className="mb-1">{concert.title}</div>
+                      <div className="text-sm text-muted-foreground flex items-center gap-1">
+                        <Calendar className="w-3 h-3" />
+                        {new Date(concert.startTime).toLocaleDateString()}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="mb-1">{avail} / {total}</div>
+                      <div className="text-sm text-muted-foreground">seats</div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="mb-1">{concert.availableSeats} / {concert.totalSeats}</div>
-                    <div className="text-sm text-muted-foreground">seats</div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

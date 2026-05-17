@@ -1,13 +1,31 @@
-import { useState } from "react";
-import { concerts } from "../../data/mockData";
+import { useState, useEffect } from "react";
 import { TrendingUp, AlertCircle, Search } from "lucide-react";
+import { request } from "../../../services/api";
+import { Concert as ApiConcert } from "../../../types/api";
 
 export default function InventoryManagement() {
+  const [concerts, setConcerts] = useState<ApiConcert[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+
+  useEffect(() => {
+    const fetchConcerts = async () => {
+      try {
+        setLoading(true);
+        const data = await request<ApiConcert[]>('/admin/concerts');
+        setConcerts(data);
+      } catch (err: any) {
+        setError(err.message || 'Failed to fetch inventory');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchConcerts();
+  }, []);
 
   const filteredConcerts = concerts.filter(concert =>
     concert.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    concert.artist.toLowerCase().includes(searchQuery.toLowerCase()) ||
     concert.venue.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -16,6 +34,24 @@ export default function InventoryManagement() {
     if (percentage > 50) return 'text-yellow-500';
     return 'text-destructive';
   };
+
+  const getConcertStats = (concert: ApiConcert) => {
+    const totalSeats = concert.ticketCategories?.reduce((acc, tc) => acc + tc.totalQuantity, 0) || 0;
+    const availableSeats = concert.ticketCategories?.reduce((acc, tc) => acc + tc.remainingQuantity, 0) || 0;
+    const soldSeats = totalSeats - availableSeats;
+    const occupancyPercentage = totalSeats > 0 ? (soldSeats / totalSeats * 100) : 0;
+    
+    return { totalSeats, availableSeats, soldSeats, occupancyPercentage };
+  };
+
+  const overallTotalSeats = concerts.reduce((sum, c) => sum + getConcertStats(c).totalSeats, 0);
+  const overallAvailableSeats = concerts.reduce((sum, c) => sum + getConcertStats(c).availableSeats, 0);
+  const overallOccupancy = overallTotalSeats > 0 
+    ? (((overallTotalSeats - overallAvailableSeats) / overallTotalSeats) * 100).toFixed(1)
+    : '0.0';
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center">Loading inventory...</div>;
+  if (error) return <div className="min-h-screen flex items-center justify-center text-red-500">{error}</div>;
 
   return (
     <div className="min-h-screen py-8">
@@ -31,7 +67,7 @@ export default function InventoryManagement() {
               <TrendingUp className="w-5 h-5 text-primary" />
               <span className="text-sm text-muted-foreground">Total Seats</span>
             </div>
-            <div className="text-3xl">{concerts.reduce((sum, c) => sum + c.totalSeats, 0)}</div>
+            <div className="text-3xl">{overallTotalSeats}</div>
           </div>
 
           <div className="bg-card border border-border rounded-lg p-6">
@@ -39,7 +75,7 @@ export default function InventoryManagement() {
               <AlertCircle className="w-5 h-5 text-green-500" />
               <span className="text-sm text-muted-foreground">Available Seats</span>
             </div>
-            <div className="text-3xl">{concerts.reduce((sum, c) => sum + c.availableSeats, 0)}</div>
+            <div className="text-3xl">{overallAvailableSeats}</div>
           </div>
 
           <div className="bg-card border border-border rounded-lg p-6">
@@ -48,8 +84,7 @@ export default function InventoryManagement() {
               <span className="text-sm text-muted-foreground">Avg Occupancy</span>
             </div>
             <div className="text-3xl">
-              {((concerts.reduce((sum, c) => sum + (c.totalSeats - c.availableSeats), 0) /
-                 concerts.reduce((sum, c) => sum + c.totalSeats, 0)) * 100).toFixed(1)}%
+              {overallOccupancy}%
             </div>
           </div>
         </div>
@@ -69,31 +104,31 @@ export default function InventoryManagement() {
 
         <div className="space-y-4">
           {filteredConcerts.map((concert) => {
-            const soldSeats = concert.totalSeats - concert.availableSeats;
-            const occupancyPercentage = (soldSeats / concert.totalSeats * 100).toFixed(1);
+            const { totalSeats, availableSeats, soldSeats, occupancyPercentage } = getConcertStats(concert);
+            const displayPercentage = occupancyPercentage.toFixed(1);
 
             return (
               <div key={concert.id} className="bg-card border border-border rounded-lg p-6">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
                   <div className="flex-1">
                     <h3 className="text-xl mb-2">{concert.title}</h3>
-                    <div className="text-muted-foreground mb-2">{concert.artist}</div>
+                    <div className="text-muted-foreground mb-2">Various Artists</div>
                     <div className="text-sm text-muted-foreground">
-                      {new Date(concert.date).toLocaleDateString()} at {concert.time} · {concert.venue}
+                      {new Date(concert.startTime).toLocaleDateString()} at {new Date(concert.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {concert.venue}
                     </div>
                   </div>
 
                   <div className="flex gap-6 text-center">
                     <div>
-                      <div className="text-2xl">{concert.totalSeats}</div>
+                      <div className="text-2xl">{totalSeats}</div>
                       <div className="text-sm text-muted-foreground">Total</div>
                     </div>
                     <div>
-                      <div className="text-2xl text-green-500">{concert.availableSeats}</div>
+                      <div className="text-2xl text-green-500">{availableSeats}</div>
                       <div className="text-sm text-muted-foreground">Available</div>
                     </div>
                     <div>
-                      <div className={`text-2xl ${getOccupancyColor(Number(occupancyPercentage))}`}>
+                      <div className={`text-2xl ${getOccupancyColor(occupancyPercentage)}`}>
                         {soldSeats}
                       </div>
                       <div className="text-sm text-muted-foreground">Sold</div>
@@ -104,15 +139,15 @@ export default function InventoryManagement() {
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Occupancy Rate</span>
-                    <span className={getOccupancyColor(Number(occupancyPercentage))}>
-                      {occupancyPercentage}%
+                    <span className={getOccupancyColor(occupancyPercentage)}>
+                      {displayPercentage}%
                     </span>
                   </div>
                   <div className="h-3 bg-accent rounded-full overflow-hidden">
                     <div
                       className={`h-full transition-all ${
-                        Number(occupancyPercentage) > 80 ? 'bg-green-500' :
-                        Number(occupancyPercentage) > 50 ? 'bg-yellow-500' :
+                        occupancyPercentage > 80 ? 'bg-green-500' :
+                        occupancyPercentage > 50 ? 'bg-yellow-500' :
                         'bg-destructive'
                       }`}
                       style={{ width: `${occupancyPercentage}%` }}
@@ -120,20 +155,11 @@ export default function InventoryManagement() {
                   </div>
                 </div>
 
-                {concert.isFlashSale && (
-                  <div className="mt-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
-                    <div className="flex items-center gap-2 text-sm text-destructive">
-                      <AlertCircle className="w-4 h-4" />
-                      <span>Flash Sale Active - {concert.flashSaleDiscount}% off until {concert.flashSaleEndTime}</span>
-                    </div>
-                  </div>
-                )}
-
-                {concert.availableSeats < 100 && (
+                {availableSeats < 100 && totalSeats > 0 && (
                   <div className="mt-4 p-3 bg-orange-500/10 border border-orange-500/20 rounded-lg">
                     <div className="flex items-center gap-2 text-sm text-orange-500">
                       <AlertCircle className="w-4 h-4" />
-                      <span>Low Inventory Alert - Only {concert.availableSeats} seats remaining</span>
+                      <span>Low Inventory Alert - Only {availableSeats} seats remaining</span>
                     </div>
                   </div>
                 )}

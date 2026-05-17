@@ -1,10 +1,36 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router";
-import { concerts } from "../../data/mockData";
 import { Clock, MapPin, Calendar, Zap } from "lucide-react";
+import { request } from "../../../services/api";
+import { Concert as ApiConcert } from "../../../types/api";
+import { mapConcertToUI } from "../../../utils/concertMapper";
+import { Concert as UIConcert } from "../../../types/ui";
 
 export default function Home() {
+  const [concerts, setConcerts] = useState<UIConcert[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchConcerts = async () => {
+      try {
+        setLoading(true);
+        const data = await request<ApiConcert[]>('/concerts');
+        setConcerts(data.map(mapConcertToUI));
+      } catch (err: any) {
+        setError(err.message || 'Failed to fetch concerts');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchConcerts();
+  }, []);
+
   const flashSaleConcerts = concerts.filter(c => c.isFlashSale);
   const upcomingConcerts = concerts.slice(0, 3);
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center">Loading concerts...</div>;
+  if (error) return <div className="min-h-screen flex items-center justify-center text-red-500">{error}</div>;
 
   return (
     <div className="min-h-screen">

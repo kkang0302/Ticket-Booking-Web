@@ -1,16 +1,22 @@
-import { Link, useLocation } from "react-router";
-import { Ticket, Calendar, History, LayoutDashboard, Moon, Sun, Menu, X } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router";
+import { Ticket, Calendar, History, LayoutDashboard, Moon, Sun, Menu, X, LogOut, User } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useAuth } from "../../../context/AuthContext";
 
-interface NavigationProps {
-  isAdmin: boolean;
-}
-
-export default function Navigation({ isAdmin }: NavigationProps) {
+export default function Navigation() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { isAuthenticated, user, logout, isAdmin } = useAuth();
+  
+  const userEmail = user?.email || user?.name || '';
+
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
 
   const customerLinks = [
     { path: "/", label: "Home", icon: Ticket },
@@ -20,13 +26,13 @@ export default function Navigation({ isAdmin }: NavigationProps) {
 
   const adminLinks = [
     { path: "/admin", label: "Dashboard", icon: LayoutDashboard },
-    { path: "/admin/bookings", label: "Bookings", icon: History },
+    { path: "/admin/bookings", label: "All Bookings", icon: History },
     { path: "/admin/inventory", label: "Inventory", icon: Ticket },
-    { path: "/admin/concerts", label: "Concerts", icon: Calendar },
+    { path: "/admin/concerts", label: "Manage Concerts", icon: Calendar },
     { path: "/admin/vouchers", label: "Vouchers", icon: Ticket },
   ];
 
-  const links = isAdmin ? adminLinks : customerLinks;
+  const links = isAdmin ? [...customerLinks, ...adminLinks] : customerLinks;
 
   return (
     <nav className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -75,23 +81,40 @@ export default function Navigation({ isAdmin }: NavigationProps) {
               )}
             </button>
 
-            {!isAdmin && (
-              <Link
-                to="/admin"
-                className="hidden md:block px-4 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 transition-colors"
-              >
-                Admin Portal
-              </Link>
+            {isAuthenticated && (
+              <div className="hidden md:flex items-center gap-4">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <User className="w-4 h-4" />
+                  <span>{userEmail}</span>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 px-4 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Logout
+                </button>
+              </div>
             )}
 
-            {isAdmin && (
-              <Link
-                to="/"
-                className="hidden md:block px-4 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 transition-colors"
-              >
-                Customer View
-              </Link>
+            {!isAuthenticated && (
+              <div className="hidden md:flex items-center gap-2">
+                <Link
+                  to="/login"
+                  className="px-4 py-2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Login
+                </Link>
+                <Link
+                  to="/register"
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-opacity"
+                >
+                  Sign Up
+                </Link>
+              </div>
             )}
+
+
 
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -126,13 +149,44 @@ export default function Navigation({ isAdmin }: NavigationProps) {
                 </Link>
               );
             })}
-            <Link
-              to={isAdmin ? "/" : "/admin"}
-              onClick={() => setMobileMenuOpen(false)}
-              className="flex items-center gap-2 px-3 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 transition-colors"
-            >
-              {isAdmin ? "Customer View" : "Admin Portal"}
-            </Link>
+
+            {!isAuthenticated && (
+              <>
+                <Link
+                  to="/login"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-2 px-3 py-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground rounded-md transition-colors"
+                >
+                  Login
+                </Link>
+                <Link
+                  to="/register"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-opacity"
+                >
+                  Sign Up
+                </Link>
+              </>
+            )}
+
+            {isAuthenticated && (
+              <>
+                <div className="px-3 py-2 text-sm text-muted-foreground border-t border-border mt-2 pt-2">
+                  <User className="w-4 h-4 inline mr-2" />
+                  {userEmail}
+                </div>
+                <button
+                  onClick={() => {
+                    handleLogout();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Logout
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}

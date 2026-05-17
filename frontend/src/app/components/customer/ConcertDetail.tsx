@@ -1,12 +1,34 @@
 import { useParams, Link } from "react-router";
-import { concerts } from "../../data/mockData";
 import { Calendar, Clock, MapPin, Users, Zap, Tag } from "lucide-react";
 import { useState, useEffect } from "react";
+import { request } from "../../../services/api";
+import { Concert as ApiConcert } from "../../../types/api";
+import { mapConcertToUI } from "../../../utils/concertMapper";
+import { Concert as UIConcert } from "../../../types/ui";
 
 export default function ConcertDetail() {
   const { id } = useParams<{ id: string }>();
-  const concert = concerts.find(c => c.id === id);
+  const [concert, setConcert] = useState<UIConcert | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState("");
+
+  useEffect(() => {
+    const fetchConcert = async () => {
+      try {
+        setLoading(true);
+        const data = await request<ApiConcert>(`/concerts/${id}`);
+        setConcert(mapConcertToUI(data));
+      } catch (err: any) {
+        setError(err.message || 'Failed to fetch concert details');
+      } finally {
+        setLoading(false);
+      }
+    };
+    if (id) {
+      fetchConcert();
+    }
+  }, [id]);
 
   useEffect(() => {
     if (concert?.isFlashSale && concert.flashSaleEndTime) {
@@ -30,6 +52,9 @@ export default function ConcertDetail() {
       return () => clearInterval(timer);
     }
   }, [concert]);
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center">Loading concert details...</div>;
+  if (error) return <div className="min-h-screen flex items-center justify-center text-red-500">{error}</div>;
 
   if (!concert) {
     return (
@@ -140,10 +165,10 @@ export default function ConcertDetail() {
                 </div>
 
                 <Link
-                  to={`/concerts/${concert.id}/seats`}
+                  to={`/concerts/${concert.id}/tickets`}
                   className="block w-full py-4 bg-primary text-primary-foreground text-center rounded-lg hover:opacity-90 transition-opacity mb-4"
                 >
-                  Select Seats
+                  Select Tickets
                 </Link>
 
                 <div className="space-y-3 pt-4 border-t border-border">

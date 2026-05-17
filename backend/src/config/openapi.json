@@ -1,0 +1,76 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Concert Ticketing API",
+    "version": "1.0.0",
+    "description": "Event ticket booking API with mock payment (no real payment gateway)."
+  },
+  "servers": [{ "url": "http://localhost:3000", "description": "Local" }],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "paths": {
+    "/auth/register": {
+      "post": { "summary": "Register customer", "responses": { "201": { "description": "Created" } } }
+    },
+    "/auth/login": {
+      "post": { "summary": "Login", "responses": { "200": { "description": "OK" } } }
+    },
+    "/concerts": {
+      "get": { "summary": "List published concerts", "responses": { "200": { "description": "OK" } } }
+    },
+    "/concerts/{id}": {
+      "get": {
+        "summary": "Concert detail",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/bookings": {
+      "post": {
+        "summary": "Create booking (PENDING)",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "201": { "description": "Created" } }
+      }
+    },
+    "/bookings/{id}/pay": {
+      "post": {
+        "summary": "Mock payment — PENDING to PAID",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Payment simulated" } }
+      }
+    },
+    "/bookings/me": {
+      "get": { "summary": "My bookings", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/vouchers/validate/{code}": {
+      "get": {
+        "summary": "Validate voucher",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "code", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/admin/bookings": {
+      "get": { "summary": "List bookings (admin)", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/admin/bookings/{id}/status": {
+      "patch": { "summary": "Update booking status", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "OK" } } }
+    },
+    "/admin/concerts": {
+      "get": { "summary": "List concerts (admin)", "security": [{ "bearerAuth": [] }] },
+      "post": { "summary": "Create concert", "security": [{ "bearerAuth": [] }] }
+    },
+    "/admin/vouchers": {
+      "get": { "summary": "List vouchers", "security": [{ "bearerAuth": [] }] },
+      "post": { "summary": "Create voucher", "security": [{ "bearerAuth": [] }] }
+    }
+  }
+}
