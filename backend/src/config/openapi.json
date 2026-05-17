@@ -1,76 +1,478 @@
 {
-  "openapi": "3.0.0",
+  "openapi": "3.0.3",
   "info": {
     "title": "Concert Ticketing API",
     "version": "1.0.0",
-    "description": "Event ticket booking API with mock payment (no real payment gateway)."
+    "description": "Event ticket booking API for Geek Up assessment. Mock payment only — no real payment gateway. Includes customer flow, admin operations, idempotent booking, and flash-sale concurrency controls."
   },
-  "servers": [{ "url": "http://localhost:3000", "description": "Local" }],
+  "servers": [
+    { "url": "http://localhost:3000", "description": "Local development" }
+  ],
+  "tags": [
+    { "name": "Auth", "description": "Registration and login" },
+    { "name": "Concerts", "description": "Public concert catalog" },
+    { "name": "Bookings", "description": "Customer bookings and mock payment" },
+    { "name": "Vouchers", "description": "Voucher validation" },
+    { "name": "Admin Bookings", "description": "Operations — booking management" },
+    { "name": "Admin Concerts", "description": "Operations — concerts and ticket tiers" },
+    { "name": "Admin Vouchers", "description": "Operations — voucher campaigns" },
+    { "name": "System", "description": "Health check" }
+  ],
   "components": {
     "securitySchemes": {
       "bearerAuth": {
         "type": "http",
         "scheme": "bearer",
-        "bearerFormat": "JWT"
+        "bearerFormat": "JWT",
+        "description": "Obtain token via POST /auth/login"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "message": { "type": "string" }
+            }
+          }
+        }
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "required": ["email", "password", "fullName"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string", "minLength": 6 },
+          "fullName": { "type": "string" }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string" }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "token": { "type": "string" },
+              "user": { "$ref": "#/components/schemas/User" }
+            }
+          }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "email": { "type": "string" },
+          "fullName": { "type": "string" },
+          "role": { "type": "string", "enum": ["CUSTOMER", "OPERATOR", "ADMIN"] }
+        }
+      },
+      "TicketCategory": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "concertId": { "type": "integer" },
+          "name": { "type": "string" },
+          "price": { "type": "string" },
+          "totalQuantity": { "type": "integer" },
+          "remainingQuantity": { "type": "integer" }
+        }
+      },
+      "Concert": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "title": { "type": "string" },
+          "venue": { "type": "string" },
+          "startTime": { "type": "string", "format": "date-time" },
+          "status": { "type": "string", "enum": ["DRAFT", "PUBLISHED", "SOLD_OUT"] },
+          "ticketCategories": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/TicketCategory" }
+          }
+        }
+      },
+      "BookingItemInput": {
+        "type": "object",
+        "required": ["ticketCategoryId", "quantity"],
+        "properties": {
+          "ticketCategoryId": { "type": "integer" },
+          "quantity": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "CreateBookingRequest": {
+        "type": "object",
+        "required": ["concertId", "items", "idempotencyKey"],
+        "properties": {
+          "concertId": { "type": "integer" },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Client-generated UUID for safe retries"
+          },
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BookingItemInput" }
+          },
+          "voucherCode": { "type": "string", "example": "FLASH10" }
+        }
+      },
+      "Booking": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "userId": { "type": "integer" },
+          "concertId": { "type": "integer" },
+          "voucherId": { "type": "integer", "nullable": true },
+          "totalAmount": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["PENDING", "RESERVED", "PAID", "FAILED", "CANCELLED", "EXPIRED"]
+          },
+          "idempotencyKey": { "type": "string" },
+          "expiresAt": { "type": "string", "format": "date-time", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "UpdateBookingStatusRequest": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["PENDING", "PAID", "CANCELLED", "FAILED", "EXPIRED"]
+          }
+        }
+      },
+      "CreateVoucherRequest": {
+        "type": "object",
+        "required": ["code", "discountType", "discountValue", "usageLimit", "expiredAt", "status"],
+        "properties": {
+          "code": { "type": "string" },
+          "discountType": { "type": "string", "enum": ["PERCENTAGE", "FIXED"] },
+          "discountValue": { "type": "number" },
+          "usageLimit": { "type": "integer" },
+          "expiredAt": { "type": "string", "format": "date-time" },
+          "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE", "EXPIRED"] }
+        }
       }
     }
   },
   "paths": {
+    "/health": {
+      "get": {
+        "tags": ["System"],
+        "summary": "Health check",
+        "responses": {
+          "200": {
+            "description": "Server is running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "message": { "type": "string", "example": "Server is running" } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/register": {
-      "post": { "summary": "Register customer", "responses": { "201": { "description": "Created" } } }
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Register customer",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/RegisterRequest" } }
+          }
+        },
+        "responses": {
+          "201": { "description": "User created" },
+          "409": { "description": "Email already registered", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
     },
     "/auth/login": {
-      "post": { "summary": "Login", "responses": { "200": { "description": "OK" } } }
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Login and receive JWT",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/LoginRequest" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginResponse" } } }
+          },
+          "401": { "description": "Invalid credentials" }
+        }
+      }
     },
     "/concerts": {
-      "get": { "summary": "List published concerts", "responses": { "200": { "description": "OK" } } }
+      "get": {
+        "tags": ["Concerts"],
+        "summary": "List published concerts",
+        "responses": {
+          "200": {
+            "description": "List of concerts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "type": "array", "items": { "$ref": "#/components/schemas/Concert" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     },
     "/concerts/{id}": {
       "get": {
-        "summary": "Concert detail",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
-        "responses": { "200": { "description": "OK" } }
+        "tags": ["Concerts"],
+        "summary": "Get published concert detail with ticket categories",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": { "description": "Concert detail" },
+          "404": { "description": "Not found" }
+        }
       }
     },
     "/bookings": {
       "post": {
-        "summary": "Create booking (PENDING)",
+        "tags": ["Bookings"],
+        "summary": "Create booking (PENDING, reserves inventory)",
+        "description": "Requires idempotencyKey. Rate limited: 30 req / 15 min / IP. Hold expires in 15 minutes.",
         "security": [{ "bearerAuth": [] }],
-        "responses": { "201": { "description": "Created" } }
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/CreateBookingRequest" } }
+          }
+        },
+        "responses": {
+          "201": { "description": "Booking created or returned from idempotent retry" },
+          "400": { "description": "Validation error" },
+          "409": { "description": "Insufficient tickets or voucher limit" },
+          "429": { "description": "Rate limit exceeded" }
+        }
+      }
+    },
+    "/bookings/me": {
+      "get": {
+        "tags": ["Bookings"],
+        "summary": "List current user bookings",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["PENDING", "PAID", "CANCELLED", "EXPIRED", "FAILED"] }
+          }
+        ],
+        "responses": { "200": { "description": "Booking list" } }
+      }
+    },
+    "/bookings/{id}": {
+      "get": {
+        "tags": ["Bookings"],
+        "summary": "Get booking by ID",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": { "description": "Booking detail" },
+          "403": { "description": "Access denied" },
+          "404": { "description": "Not found" }
+        }
       }
     },
     "/bookings/{id}/pay": {
       "post": {
+        "tags": ["Bookings"],
         "summary": "Mock payment — PENDING to PAID",
+        "description": "Simulates payment. No real charge. Increments voucher usedCount if applicable.",
         "security": [{ "bearerAuth": [] }],
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
-        "responses": { "200": { "description": "Payment simulated" } }
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": { "description": "Payment simulated" },
+          "400": { "description": "Invalid status or expired" },
+          "403": { "description": "Not owner" }
+        }
       }
-    },
-    "/bookings/me": {
-      "get": { "summary": "My bookings", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "OK" } } }
     },
     "/vouchers/validate/{code}": {
       "get": {
-        "summary": "Validate voucher",
+        "tags": ["Vouchers"],
+        "summary": "Validate voucher code",
         "security": [{ "bearerAuth": [] }],
-        "parameters": [{ "name": "code", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "OK" } }
+        "parameters": [
+          { "name": "code", "in": "path", "required": true, "schema": { "type": "string", "example": "FLASH10" } }
+        ],
+        "responses": {
+          "200": { "description": "Voucher is valid" },
+          "400": { "description": "Invalid, expired, or fully used" }
+        }
       }
     },
     "/admin/bookings": {
-      "get": { "summary": "List bookings (admin)", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "OK" } } }
+      "get": {
+        "tags": ["Admin Bookings"],
+        "summary": "List all bookings (admin)",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "name": "concertId", "in": "query", "schema": { "type": "integer" } },
+          { "name": "userId", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Booking list with user info" } }
+      }
     },
     "/admin/bookings/{id}/status": {
-      "patch": { "summary": "Update booking status", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "OK" } } }
+      "patch": {
+        "tags": ["Admin Bookings"],
+        "summary": "Manually update booking status",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/UpdateBookingStatusRequest" } }
+          }
+        },
+        "responses": {
+          "200": { "description": "Status updated" },
+          "400": { "description": "Invalid transition" }
+        }
+      }
     },
     "/admin/concerts": {
-      "get": { "summary": "List concerts (admin)", "security": [{ "bearerAuth": [] }] },
-      "post": { "summary": "Create concert", "security": [{ "bearerAuth": [] }] }
+      "get": {
+        "tags": ["Admin Concerts"],
+        "summary": "List all concerts",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "tags": ["Admin Concerts"],
+        "summary": "Create concert",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "201": { "description": "Created" } }
+      }
+    },
+    "/admin/concerts/{id}": {
+      "get": {
+        "tags": ["Admin Concerts"],
+        "summary": "Get concert detail",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "patch": {
+        "tags": ["Admin Concerts"],
+        "summary": "Update concert",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "delete": {
+        "tags": ["Admin Concerts"],
+        "summary": "Delete concert",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "204": { "description": "Deleted" } }
+      }
+    },
+    "/admin/concerts/ticket-categories": {
+      "post": {
+        "tags": ["Admin Concerts"],
+        "summary": "Create ticket category",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "201": { "description": "Created" } }
+      }
+    },
+    "/admin/concerts/ticket-categories/{id}": {
+      "patch": {
+        "tags": ["Admin Concerts"],
+        "summary": "Update ticket category",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "delete": {
+        "tags": ["Admin Concerts"],
+        "summary": "Delete ticket category",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "204": { "description": "Deleted" } }
+      }
     },
     "/admin/vouchers": {
-      "get": { "summary": "List vouchers", "security": [{ "bearerAuth": [] }] },
-      "post": { "summary": "Create voucher", "security": [{ "bearerAuth": [] }] }
+      "get": {
+        "tags": ["Admin Vouchers"],
+        "summary": "List vouchers",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "tags": ["Admin Vouchers"],
+        "summary": "Create voucher",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/CreateVoucherRequest" } }
+          }
+        },
+        "responses": { "201": { "description": "Created" } }
+      }
+    },
+    "/admin/vouchers/{id}": {
+      "get": {
+        "tags": ["Admin Vouchers"],
+        "summary": "Get voucher by ID",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "delete": {
+        "tags": ["Admin Vouchers"],
+        "summary": "Delete voucher",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "204": { "description": "Deleted" } }
+      }
+    },
+    "/admin/vouchers/{id}/status": {
+      "patch": {
+        "tags": ["Admin Vouchers"],
+        "summary": "Update voucher status",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "OK" } }
+      }
     }
   }
 }

@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Concert Ticketing API",
-    "description": "Local API collection — mock payment flow",
+    "description": "Geek Up assessment — local API collection with mock payment flow.\n\nSetup: docker compose up -d, prisma migrate + seed, npm run dev.\n\nRun Auth → Customer → Admin. Select environment 'Concert Ticketing - Local'.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -10,12 +10,37 @@
     { "key": "bookingId", "value": "1" },
     { "key": "concertId", "value": "1" },
     { "key": "ticketCategoryId", "value": "1" },
-    { "key": "idempotencyKey", "value": "{{$guid}}" }
+    { "key": "voucherId", "value": "1" },
+    { "key": "idempotencyKey", "value": "" }
   ],
   "item": [
     {
+      "name": "System",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/health"
+          }
+        }
+      ]
+    },
+    {
       "name": "Auth",
       "item": [
+        {
+          "name": "Register Customer",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"newuser@example.com\",\n  \"password\": \"password123\",\n  \"fullName\": \"New User\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/register"
+          }
+        },
         {
           "name": "Login Customer",
           "event": [
@@ -26,6 +51,7 @@
                   "const json = pm.response.json();",
                   "if (json.data && json.data.token) {",
                   "  pm.collectionVariables.set('token', json.data.token);",
+                  "  if (pm.environment) pm.environment.set('token', json.data.token);",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -52,6 +78,7 @@
                   "const json = pm.response.json();",
                   "if (json.data && json.data.token) {",
                   "  pm.collectionVariables.set('token', json.data.token);",
+                  "  if (pm.environment) pm.environment.set('token', json.data.token);",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -75,6 +102,22 @@
       "item": [
         {
           "name": "List Concerts",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data[0]) {",
+                  "  pm.collectionVariables.set('concertId', json.data[0].id);",
+                  "  const cats = json.data[0].ticketCategories;",
+                  "  if (cats && cats[0]) pm.collectionVariables.set('ticketCategoryId', cats[0].id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "GET",
             "url": "{{baseUrl}}/concerts"
@@ -88,7 +131,7 @@
           }
         },
         {
-          "name": "Validate Voucher",
+          "name": "Validate Voucher FLASH10",
           "request": {
             "method": "GET",
             "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
@@ -98,6 +141,15 @@
         {
           "name": "Create Booking (PENDING)",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('idempotencyKey', pm.variables.replaceIn('{{$guid}}'));"
+                ],
+                "type": "text/javascript"
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -125,6 +177,21 @@
           }
         },
         {
+          "name": "Create Booking (Idempotent Retry)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"concertId\": {{concertId}},\n  \"idempotencyKey\": \"{{idempotencyKey}}\",\n  \"items\": [\n    { \"ticketCategoryId\": {{ticketCategoryId}}, \"quantity\": 1 }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/bookings"
+          }
+        },
+        {
           "name": "Mock Pay Booking",
           "request": {
             "method": "POST",
@@ -139,6 +206,14 @@
             "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
             "url": "{{baseUrl}}/bookings/me"
           }
+        },
+        {
+          "name": "Get Booking By Id",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/bookings/{{bookingId}}"
+          }
         }
       ]
     },
@@ -150,7 +225,27 @@
           "request": {
             "method": "GET",
             "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
-            "url": "{{baseUrl}}/admin/bookings"
+            "url": {
+              "raw": "{{baseUrl}}/admin/bookings?status=PENDING",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "bookings"],
+              "query": [{ "key": "status", "value": "PENDING", "disabled": true }]
+            }
+          }
+        },
+        {
+          "name": "Patch Booking Status CANCELLED",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"CANCELLED\"\n}"
+            },
+            "url": "{{baseUrl}}/admin/bookings/{{bookingId}}/status"
           }
         },
         {
@@ -162,11 +257,68 @@
           }
         },
         {
+          "name": "Create Concert",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"API Test Concert\",\n  \"venue\": \"Test Arena\",\n  \"startTime\": \"2026-12-01T19:00:00.000Z\",\n  \"status\": \"DRAFT\",\n  \"ticketCategories\": [\n    { \"name\": \"GA\", \"price\": 99, \"totalQuantity\": 10 }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/admin/concerts"
+          }
+        },
+        {
           "name": "List Vouchers",
           "request": {
             "method": "GET",
             "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
             "url": "{{baseUrl}}/admin/vouchers"
+          }
+        },
+        {
+          "name": "Create Voucher",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.id) pm.collectionVariables.set('voucherId', json.data.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"TEST20\",\n  \"discountType\": \"PERCENTAGE\",\n  \"discountValue\": 20,\n  \"usageLimit\": 10,\n  \"expiredAt\": \"2026-12-31T23:59:59.000Z\",\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": "{{baseUrl}}/admin/vouchers"
+          }
+        },
+        {
+          "name": "Patch Voucher Status INACTIVE",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"INACTIVE\"\n}"
+            },
+            "url": "{{baseUrl}}/admin/vouchers/{{voucherId}}/status"
           }
         }
       ]
