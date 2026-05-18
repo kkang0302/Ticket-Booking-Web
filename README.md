@@ -1,5 +1,7 @@
 # Concert Ticket Booking Platform
 
+Github:https://github.com/kkang0302/Ticket-Booking-Web.git
+
 Nền tảng đặt vé ca nhạc trực tuyến. Khách đặt vé, áp voucher, thanh toán giả lập; admin quản lý sự kiện, đơn hàng và mã giảm giá. Hỗ trợ flash sale: chống bán vượt tồn kho, chống trùng đơn, giới hạn request.
 
 **Stack:** Node.js, Express, Prisma, MySQL, Redis, React, Vite.
