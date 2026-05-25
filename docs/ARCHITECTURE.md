@@ -41,7 +41,7 @@
 | Frontend | React + Vite + TypeScript | UI demo, proxy `/api` → backend |
 | Docs | OpenAPI 3 + Postman | Kiểm thử local |
 
-**Vì sao MySQL thay vì PostgreSQL:** Đề không bắt buộc; team quen MySQL/MariaDB, Prisma hỗ trợ tốt, `UPDATE ... WHERE remaining_quantity >= n` đủ cho chống oversell.
+**Vì sao MySQL thay vì PostgreSQL:** Prisma hỗ trợ tốt, `UPDATE ... WHERE remaining_quantity >= n` đủ cho chống oversell.
 
 **Vì sao Redis:** Không bắt buộc cho correctness — hệ thống vẫn đúng nếu Redis tắt (`REDIS_ENABLED=false`). Redis giảm contention và tăng tốc idempotency lookup trong flash sale.
 
